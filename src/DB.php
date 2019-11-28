@@ -13,9 +13,10 @@ class DB {
     'user' => 'root',
     'password' => '',
     'charset' => 'utf8',
-    'dbname' => '',
+    'database' => '',
     'table' => '',
-    'uniqueField' => 'id'
+    'uniqueField' => 'id',
+    'lock' => false // prevent from insert / update but allow selects
   ];
 
   protected $db = '';
@@ -32,7 +33,7 @@ class DB {
       $this->{$key} = $value;
     }
 
-    $strDns = "{$this->dbType}:host={$this->host};port={$this->port};dbname={$this->dbname};charset={$this->charset}";
+    $strDns = "{$this->dbType}:host={$this->host};port={$this->port};dbname={$this->database};charset={$this->charset}";
 
     try {
       $this->db = new PDO($strDns, $this->user, $this->password, [
@@ -41,17 +42,68 @@ class DB {
       ]);
     }
     catch(PDOException $ex) {
-      die("AZNOQMOUS\DB: FAILED TO CONNECT TO DATABASE");
+      die("Aznoqmous\DB: Failed to connect to database");
     }
   }
 
-  public function select($table)
+  /*
+  * BULK ACTIONS
+  */
+  public function empty($table=false)
   {
-    $this->table = $table;
+    if($this->lock) die('Aznoqmous\Db: save prevented by lock: true');
+    $table = ($table)?: $this->table;
+    $res = $this->db->prepare("TRUNCATE TABLE $table");
+    return $res->execute();
   }
 
-  public function createTable($tableName, $obj)
+  /*
+  * STRUCTURE
+  */
+  public function getSchema($table=false)
   {
+    $database = $this->database;
+    $table = ($table) ?: $this->table;
+    $res = $this->db->prepare("SELECT COLUMN_NAME as field, IS_NULLABLE as nullable, COLUMN_DEFAULT as default_value, COLUMN_TYPE as type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='$table' AND TABLE_SCHEMA='$database'");
+    $res->execute();
+    return $res->fetchAll(PDO::FETCH_CLASS);
+  }
+
+  public function copy($db, $table=false, $localTable=false)
+  {
+    $this->createTableFromSchema($db->getSchema($table));
+    foreach( $db->findAll() as $element){
+      $this->save($element);
+    }
+  }
+
+  public function createTableFromSchema($schema, $table=false)
+  {
+    $table = ($table)?: $this->table;
+    $fields = [];
+    foreach($schema as $field){
+      $field = (object) $field;
+      $field->default = (array_key_exists('default_value', $field))?$field->default_value: $field->default;
+      $default = ($field->default)?: 'null';
+      if($field->field != $this->uniqueField) $fields[] = "{$field->field} {$field->type} DEFAULT $default";
+    }
+    $fields = implode(', ', $fields);
+    $createQuery = "CREATE TABLE $table ( {$this->uniqueField} INT( 11 ) AUTO_INCREMENT PRIMARY KEY, $fields )";
+
+    try {
+      $this->db->exec("DROP TABLE IF EXISTS $table");
+      $res = $this->db->exec($createQuery);
+    }
+    catch(PDOException $e){
+      die($e->getMessage());
+    }
+
+    return $res;
+  }
+
+  public function createTableFromObject($tableName, $obj)
+  {
+    if($this->lock) die('Aznoqmous\DB: save prevented by lock: true');
     $arrTypes = [
       ['longstring', 'string', 'boolean' ],
       ['text', 'varchar (255)', 'tinyint']
@@ -62,7 +114,7 @@ class DB {
       $type = gettype($value);
       if($type == 'string' && strlen($value) > 255) $type = 'longstring';
       $type = str_replace($arrTypes[0], $arrTypes[1], $type);
-      $fields[] = "$key $type DEFAULT NULL";
+      if($key != $this->uniqueField) $fields[] = "$key $type DEFAULT NULL";
     }
     $fields = implode(', ', $fields);
     $createQuery = "CREATE TABLE $tableName ( {$this->uniqueField} INT( 11 ) AUTO_INCREMENT PRIMARY KEY, $fields )";
@@ -78,11 +130,17 @@ class DB {
     $this->select($tableName);
   }
 
+  public function select($table)
+  {
+    $this->table = $table;
+  }
+
   /*
   * UPDATE
   */
   public function save($obj)
   {
+    if($this->lock) die('Aznoqmous\Db: save prevented by lock: true');
     $new = false;
     if(!array_key_exists($this->uniqueField, $obj)) $new = true;
     else if(!$this->findById($obj->{$this->uniqueField})) $new = true;
@@ -93,19 +151,29 @@ class DB {
 
   public function insert($obj)
   {
-    $keys = implode(', ', array_keys($obj));
-    $values = array_values($obj);
-    array_map(function($value){
-      return "\"$value\"";
-    }, $values);
-    $values = implode('","', $values);
-    $insertQuery = "INSERT INTO {$this->table} ({$keys}) VALUES (\"$values\")";
-    dump($insertQuery);
+    if($this->lock) die('Aznoqmous\Db: save prevented by lock: true');
+    $obj = (array) $obj;
+    $updates = [];
+    $arrValues = [];
+    $arrKeys = array_keys($obj);
+    foreach($obj as $key => $value){
+      $arrReplacements[] = "?";
+      $arrValues[] = $value;
+    }
+
+    $keys = implode(', ', $arrKeys);
+    // $values = implode(', ' $arrValues);
+    $replacements = implode(', ', $arrReplacements);
+
+    $insertQuery = "INSERT INTO {$this->table} ($keys) VALUES ($replacements)";
+
     $res = $this->db->prepare($insertQuery);
-    $res->execute();
+    $res->execute($arrValues);
   }
+
   public function update($obj)
   {
+    if($this->lock) die('Aznoqmous\Db: save prevented by lock: true');
     $uniqueField = $this->uniqueField;
     $id = $obj->{$uniqueField};
     $updates = [];
@@ -157,6 +225,12 @@ class DB {
   public function findById($value)
   {
     return $this->findBy($this->uniqueField, $value);
+  }
+
+  public function findOneById($value)
+  {
+    $res = $this->findBy($this->uniqueField, $value);
+    return (count($res))? $res[0] : false;
   }
 
   public function findByMatching($key, $pattern)

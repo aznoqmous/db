@@ -3,6 +3,9 @@
 ## Usage
 
 ```php
+<?php
+...
+
 // initialize
 $db = new DB([
   'host' => 'localhost',
