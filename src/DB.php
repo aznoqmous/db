@@ -69,12 +69,16 @@ class DB {
     return $res->fetchAll(PDO::FETCH_CLASS);
   }
 
-  public function copy($db, $table=false, $localTable=false)
+  public function copy($db, $table=false)
   {
     $this->createTableFromSchema($db->getSchema($table));
     foreach( $db->findAll() as $element){
       $this->save($element);
     }
+  }
+  public function copySchema($db, $table=false)
+  {
+    $this->createTableFromSchema($db->getSchema($table));
   }
 
   public function createTableFromSchema($schema, $table=false)
@@ -140,6 +144,7 @@ class DB {
   */
   public function save($obj)
   {
+    $obj = (object) $obj;
     if($this->lock) die('Aznoqmous\Db: save prevented by lock: true');
     $new = false;
     if(!array_key_exists($this->uniqueField, $obj)) $new = true;
