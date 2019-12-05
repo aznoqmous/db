@@ -57,6 +57,20 @@ class DB {
     return $res->execute();
   }
 
+  public function emptyForce($table=false)
+  {
+    if($this->lock) die('Aznoqmous\Db: save prevented by lock: true');
+    $table = ($table)?: $this->table;
+    $this->select($table);
+
+    $this->db->exec("SET FOREIGN_KEY_CHECKS=0;");
+
+    $this->empty();
+
+    $this->db->exec("SET FOREIGN_KEY_CHECKS=0;");
+
+  }
+
   /*
   * STRUCTURE
   */
@@ -139,6 +153,46 @@ class DB {
     $this->table = $table;
   }
 
+  public function getCreateTable($table=false)
+  {
+    $table = ($table)?:$this->table;
+    $res = $this->db->prepare("SHOW CREATE TABLE $table");
+    $res->execute();
+    return $res->fetchAll(PDO::FETCH_CLASS)[0]->{"Create Table"};
+  }
+  public function getCreateTableNoConstraints($table=false)
+  {
+    $createTable = $this->getCreateTable($table);
+    $createTable = preg_replace('/,[^()]*?CONSTRAINT.*?\\n/s', '', $createTable);
+    return $createTable;
+  }
+  public function getConstraints($table=false)
+  {
+    $table = ($table) ?: $this->table;
+    $createTable = $this->getCreateTable();
+    preg_match('/CONSTRAINT.*?\\n/s', $createTable, $constraints);
+    foreach($constraints as $key => $constr){
+      $constr_name = explode(' ', $constr)[1];
+      $constraints[$key] = (object) [
+        'name' => str_replace('`', '', $constr_name),
+        'contraint' => $constr
+      ];
+    }
+    return $constraints;
+  }
+  public function getForeignKeys($table=false)
+  {
+    $table = ($table) ?: $this->table;
+    $createTable = $this->getCreateTable();
+
+    $res = [];
+    preg_match_all('/FOREIGN KEY \((.*?)\)/s', $createTable, $fks);
+    foreach($fks[1] as $fk){
+      $res[] = str_replace('`', '', $fk);
+    }
+    return $res;
+  }
+
   /*
   * UPDATE
   */
@@ -213,9 +267,16 @@ class DB {
 
   public function findBy($key, $value)
   {
-    $res = $this->db->prepare("SELECT * FROM {$this->table} WHERE $key = $value");
+    if($value !== null) $res = $this->db->prepare("SELECT * FROM {$this->table} WHERE $key = \"$value\"");
+    else  $res = $this->db->prepare("SELECT * FROM {$this->table} WHERE $key IS NULL");
     $res->execute();
     return $res->fetchAll(PDO::FETCH_CLASS);
+  }
+
+  public function findOneBy($key, $value)
+  {
+    $res = $this->findBy($key, $value);
+    return (count($res))? $res[0] : false;
   }
 
   public function findMultipleBy($key, $values)
@@ -240,9 +301,13 @@ class DB {
 
   public function findByMatching($key, $pattern)
   {
-    $res = $this->db->prepare("SELECT * FROM {$this->table} WHERE $key LIKE '$pattern'");
+    $res = $this->db->prepare("SELECT * FROM {$this->table} WHERE $key LIKE \"$pattern\"");
     $res->execute();
     return $res->fetchAll(PDO::FETCH_CLASS);
   }
-
+  public function findOneByMatching($key, $pattern)
+  {
+    $res = $this->findByMatching($key, $pattern);
+    return (count($res))? $res[0] : false;
+  }
 }
