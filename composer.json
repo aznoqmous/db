@@ -10,8 +10,5 @@
       "psr-4" : {
         "Aznoqmous\\" : "src"
       }
-    },
-    "require-dev": {
-        "symfony/var-dumper": "^5.0"
     }
 }

@@ -119,9 +119,10 @@ class DB {
     return $res;
   }
 
-  public function createTableFromObject($tableName, $obj)
+  public function createTableFromObject($obj, $table=false)
   {
     if($this->lock) die('Aznoqmous\DB: save prevented by lock: true');
+    $table = ($table)?: $this->table;
     $arrTypes = [
       ['longstring', 'string', 'boolean' ],
       ['text', 'varchar (255)', 'tinyint']
@@ -135,17 +136,32 @@ class DB {
       if($key != $this->uniqueField) $fields[] = "$key $type DEFAULT NULL";
     }
     $fields = implode(', ', $fields);
-    $createQuery = "CREATE TABLE $tableName ( {$this->uniqueField} INT( 11 ) AUTO_INCREMENT PRIMARY KEY, $fields )";
+    $createQuery = "CREATE TABLE $table ( {$this->uniqueField} INT( 11 ) AUTO_INCREMENT PRIMARY KEY, $fields )";
 
     try {
-      $this->db->exec("DROP TABLE IF EXISTS $tableName");
+      $this->db->exec("DROP TABLE IF EXISTS $table");
       $res = $this->db->exec($createQuery);
     }
     catch(PDOException $e){
       die($e->getMessage());
     }
 
-    $this->select($tableName);
+    $this->select($table);
+  }
+
+  public function createTableFromObjects($array, $table=false)
+  {
+    if($this->lock) die('Aznoqmous\DB: save prevented by lock: true');
+    $aggregated_obj = [];
+    foreach($array as $obj){
+      foreach($obj as $key => $value){
+        if(
+          !array_key_exists($key, $aggregated_obj)
+          || strlen($aggregated_obj[$key].'') < strlen($value.'')
+          ) $aggregated_obj[$key] = $value;
+      }
+    }
+    $this->createTableFromObject($aggregated_obj, $table);
   }
 
   public function select($table)
