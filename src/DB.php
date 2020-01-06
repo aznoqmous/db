@@ -124,8 +124,8 @@ class DB {
     if($this->lock) die('Aznoqmous\DB: save prevented by lock: true');
     $table = ($table)?: $this->table;
     $arrTypes = [
-      ['longstring', 'string', 'boolean' ],
-      ['text', 'varchar (255)', 'tinyint']
+      ['longstring', 'string', 'boolean', 'NULL'],
+      ['text', 'varchar (255)', 'tinyint', 'varchar (255)']
     ];
     $obj = (object) $obj;
     $fields = [];
@@ -281,7 +281,20 @@ class DB {
     return $res->fetchAll(PDO::FETCH_CLASS);
   }
 
-  public function findBy($key, $value)
+  public function find($arrayKeyValue)
+  {
+    $arrWhere = [];
+    foreach($arrayKeyValue as $key => $value){
+      $arrWhere[] = "$key $value";
+    }
+    $strWhere = implode(' AND ', $arrWhere);
+
+    $res = $this->db->prepare("SELECT * FROM {$this->table} WHERE $strWhere");
+    $res->execute();
+    return $res->fetchAll(PDO::FETCH_CLASS);
+  }
+
+  public function findBy($key, $value=null)
   {
     if($value !== null) $res = $this->db->prepare("SELECT * FROM {$this->table} WHERE $key = \"$value\"");
     else  $res = $this->db->prepare("SELECT * FROM {$this->table} WHERE $key IS NULL");
